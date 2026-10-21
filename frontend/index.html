@@ -196,14 +196,15 @@
 
     <div class="toast-wrap" id="toastWrap"></div>
 
+    <script src="config.js"></script>
     <script>
     (() => {
         'use strict';
 
         // ── API base resolution ──
-        // 1. window.EXCEL_AGENT_API override
-        // 2. file:// or common static-dev ports (3000/5500) → localhost:8000
-        // 3. otherwise same-origin (works behind proxies / same-host deploys)
+        // 1. window.EXCEL_AGENT_API override (set in config.js)
+        // 2. file:// or common static-dev ports → localhost:8000
+        // 3. otherwise same-origin
         const API_URL = (window.EXCEL_AGENT_API || (
             location.protocol === 'file:' || ['3000', '5500'].includes(location.port)
                 ? 'http://localhost:8000'
