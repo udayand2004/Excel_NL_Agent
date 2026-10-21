@@ -1,0 +1,37 @@
+# Environment
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.save
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Venv
+venv/
+backend/venv/
+.venv/
+
+# Uploads / temp
+uploads/
+*.tmp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+*.zip
+*:Zone.Identifier

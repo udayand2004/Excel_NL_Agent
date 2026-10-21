@@ -1,0 +1,13 @@
+# Python 3.13 Compatible - All packages have pre-built wheels
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pandas>=2.2.3
+numpy>=2.1.0
+openai>=1.52.0
+python-multipart>=0.0.12
+openpyxl>=3.1.5
+xlrd>=2.0.1
+pydantic>=2.9.0
+python-dotenv>=1.0.0
+matplotlib>=3.9.0
+seaborn>=0.13.0

@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel AI Agent</title>
+    <style>
+        :root {
+            --bg: #0f172a; --panel: #1e293b; --panel-2: #020617;
+            --border: #334155; --text: #e2e8f0; --muted: #94a3b8;
+            --accent: #60a5fa; --accent-2: #a78bfa; --blue: #2563eb;
+            --danger: #f87171; --ok: #4ade80;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text); min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+        header { text-align: center; margin-bottom: 1.75rem; }
+        header h1 {
+            font-size: 2.4rem;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 0.35rem;
+        }
+        header p { color: var(--muted); font-size: 0.95rem; }
+        .api-badge {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            margin-top: 0.6rem; font-size: 0.78rem; color: var(--muted);
+            background: var(--panel); border: 1px solid var(--border);
+            padding: 0.25rem 0.7rem; border-radius: 999px;
+        }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+        .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+        .dot.off { background: var(--danger); }
+
+        .upload-zone {
+            border: 2px dashed var(--border); border-radius: 16px; padding: 2.5rem;
+            text-align: center; background: var(--panel); transition: all .25s;
+            cursor: pointer; margin-bottom: 1.5rem;
+        }
+        .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); }
+        .upload-zone input { display: none; }
+        .upload-icon { font-size: 2.6rem; margin-bottom: .6rem; }
+        .upload-text { color: var(--muted); }
+        .upload-text strong { color: var(--text); }
+        .upload-meta { font-size: .78rem; color: #64748b; margin-top: .5rem; }
+
+        .panel {
+            background: var(--panel); border-radius: 16px; padding: 1.4rem;
+            margin-bottom: 1.25rem; display: none; border: 1px solid var(--border);
+        }
+        .panel.active { display: block; }
+        .panel h2 { font-size: 1.15rem; margin-bottom: .9rem; color: #f8fafc; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+        .panel h2 .spacer { flex: 1; }
+
+        .btn {
+            background: var(--blue); color: #fff; border: none; padding: .45rem .95rem;
+            border-radius: 8px; cursor: pointer; font-size: .85rem; transition: background .15s;
+        }
+        .btn:hover { background: #1d4ed8; }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+        .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+        .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn.small { padding: .3rem .65rem; font-size: .75rem; border-radius: 6px; }
+
+        .data-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .8rem; margin-bottom: 1rem; }
+        .stat-card { background: var(--bg); padding: .85rem 1rem; border-radius: 12px; border: 1px solid var(--border); }
+        .stat-card .label { font-size: .78rem; color: var(--muted); }
+        .stat-card .value { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+
+        .sheet-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+        select, input[type=text], textarea {
+            background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+            padding: .55rem .8rem; color: var(--text); font-size: .9rem; outline: none;
+        }
+        select:focus, input[type=text]:focus, textarea:focus { border-color: var(--accent); }
+
+        details.schema { margin-top: .5rem; }
+        details.schema summary { cursor: pointer; color: var(--muted); font-size: .85rem; margin-bottom: .5rem; }
+        table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+        th, td { padding: .45rem .5rem; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 600; }
+        td { color: var(--text); }
+        .kind-tag { font-size: .7rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+        .kind-tag.numeric { color: var(--accent); border-color: #1d4ed8; }
+        .kind-tag.datetime { color: var(--accent-2); border-color: #6d28d9; }
+        .kind-tag.categorical { color: var(--ok); border-color: #166534; }
+
+        .questions-list { display: flex; flex-direction: column; gap: .7rem; }
+        .question-item {
+            background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+            padding: .85rem 1rem; display: flex; flex-direction: column; gap: .6rem;
+        }
+        .question-item .qtext { font-size: .92rem; }
+        .question-item .qrow { display: flex; gap: .5rem; }
+        .question-item input { flex: 1; }
+
+        .chat-container { display: flex; flex-direction: column; height: 620px; }
+        .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem; padding-right: .4rem; }
+        .message { max-width: 92%; padding: 1rem; border-radius: 12px; line-height: 1.55; font-size: .93rem; overflow-wrap: anywhere; }
+        .message.user { align-self: flex-end; background: var(--blue); color: #fff; }
+        .message.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); width: 100%; max-width: 100%; }
+        .message p + p { margin-top: .6rem; }
+        .message ul, .message ol { margin: .4rem 0 .4rem 1.2rem; }
+        .message code { background: var(--panel-2); padding: .1rem .35rem; border-radius: 4px; font-size: .85em; color: #a5b4fc; }
+        .message pre.code-block {
+            background: var(--panel-2); border-radius: 8px; padding: .75rem; margin-top: .6rem;
+            font-family: 'SF Mono', 'Courier New', monospace; font-size: .78rem;
+            overflow-x: auto; color: #a5b4fc; border: 1px solid var(--border);
+        }
+        .msg-actions { display: flex; gap: .4rem; margin-top: .5rem; flex-wrap: wrap; }
+        .result-preview { background: var(--panel-2); border-radius: 8px; padding: .7rem; margin-top: .6rem; font-size: .82rem; overflow-x: auto; max-height: 280px; overflow-y: auto; border: 1px solid var(--border); }
+        .chart-container {
+            margin-top: .9rem; text-align: center; background: var(--panel-2);
+            border-radius: 12px; padding: .9rem; border: 1px solid var(--border);
+        }
+        .chart-container img { max-width: 100%; border-radius: 8px; }
+        .chart-label { color: var(--accent); font-size: .82rem; margin-top: .45rem; font-weight: 600; }
+        .meta-line { color: #64748b; font-size: .72rem; margin-top: .5rem; }
+
+        .chat-input { display: flex; gap: .65rem; }
+        .chat-input input { flex: 1; }
+        .chat-input .btn { padding: 0 1.4rem; font-size: .95rem; }
+
+        .suggested-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-bottom: .9rem; }
+        .chip {
+            background: var(--panel); border: 1px solid var(--border); color: #cbd5e1;
+            padding: .42rem .85rem; border-radius: 20px; cursor: pointer; font-size: .8rem;
+            transition: all .15s;
+        }
+        .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+        .loading { display: inline-block; width: 16px; height: 16px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { color: var(--danger); }
+        .success { color: var(--ok); }
+
+        .toast-wrap { position: fixed; bottom: 1.2rem; right: 1.2rem; display: flex; flex-direction: column; gap: .5rem; z-index: 50; }
+        .toast { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: .7rem 1rem; border-radius: 10px; font-size: .85rem; box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: slidein .2s ease; }
+        .toast.error { border-color: #7f1d1d; }
+        @keyframes slidein { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Excel AI Agent</h1>
+            <p>Upload a spreadsheet, ask questions in plain English, get charts &amp; insights</p>
+            <div class="api-badge"><span class="dot" id="apiDot"></span><span id="apiLabel">checking API…</span></div>
+        </header>
+
+        <div class="upload-zone" id="uploadZone">
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text"><strong>Click to upload</strong> or drag and drop<br>Supports .xlsx, .xls, .csv</div>
+            <div class="upload-meta" id="uploadMeta"></div>
+        </div>
+
+        <div class="panel" id="summaryPanel">
+            <h2>📋 Data Summary <span class="spacer"></span>
+                <button class="btn ghost small" id="resetBtn" title="Delete this session and start over">Reset session</button>
+            </h2>
+            <div class="sheet-row" id="sheetRow" style="display:none">
+                <label for="sheetSelect" style="color:var(--muted);font-size:.85rem">Sheet:</label>
+                <select id="sheetSelect"></select>
+            </div>
+            <div class="data-summary" id="dataSummary"></div>
+            <details class="schema">
+                <summary>Column schema &amp; types</summary>
+                <div style="overflow-x:auto"><table id="schemaTable"></table></div>
+            </details>
+        </div>
+
+        <div class="panel" id="clarifyPanel">
+            <h2>❓ Help the AI understand your data</h2>
+            <p style="color:var(--muted);margin-bottom:.9rem;font-size:.9rem">Optional — answering these improves accuracy:</p>
+            <div class="questions-list" id="questionsList"></div>
+        </div>
+
+        <div class="panel active" id="chatPanel">
+            <h2>💬 Chat with your data</h2>
+            <div class="suggested-chips" id="suggestedChips"></div>
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant">👋 Hi! Upload an Excel or CSV file to get started. I'll profile the data, ask a couple of clarifying questions, and answer with charts and code you can copy.</div>
+                </div>
+                <div class="chat-input">
+                    <input type="text" id="chatInput" placeholder="Upload a file to start asking questions…" disabled maxlength="4000">
+                    <button id="sendBtn" class="btn" onclick="sendMessage()" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+
+    <script>
+    (() => {
+        'use strict';
+
+        // ── API base resolution ──
+        // 1. window.EXCEL_AGENT_API override
+        // 2. file:// or common static-dev ports (3000/5500) → localhost:8000
+        // 3. otherwise same-origin (works behind proxies / same-host deploys)
+        const API_URL = (window.EXCEL_AGENT_API || (
+            location.protocol === 'file:' || ['3000', '5500'].includes(location.port)
+                ? 'http://localhost:8000'
+                : ''
+        )).replace(/\/$/, '');
+
+        let sessionId = null;
+        let busy = false;
+
+        const $ = (id) => document.getElementById(id);
+        const uploadZone = $('uploadZone'), fileInput = $('fileInput');
+        const chatInput = $('chatInput'), sendBtn = $('sendBtn');
+
+        // ── Utilities ──
+        function escapeHtml(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Minimal, safe markdown: escape first, then apply a small allowlist of tags.
+        function renderMarkdown(text) {
+            let s = escapeHtml(text);
+            // fenced code blocks
+            s = s.replace(/```([\s\S]*?)```/g, (_, code) => `<pre class="code-block">${code.replace(/^\w*\n/, '')}</pre>`);
+            // inline code (after fences)
+            s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+            // bold / italic
+            s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            s = s.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, '$1<em>$2</em>');
+            // headings
+            s = s.replace(/^### (.+)$/gm, '<strong>$1</strong>');
+            s = s.replace(/^## (.+)$/gm, '<strong>$1</strong>');
+            s = s.replace(/^# (.+)$/gm, '<strong>$1</strong>');
+            // unordered lists
+            s = s.replace(/(?:^|\n)[\*\-] (.+)(?=\n|$)/g, '\n<li>$1</li>');
+            s = s.replace(/(?:<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, (m) => `<ul>${m}</ul>`);
+            // ordered lists
+            s = s.replace(/(?:^|\n)\d+\. (.+)(?=\n|$)/g, '\n<li>$1</li>');
+            // paragraphs
+            s = s.split(/\n{2,}/).map(p => {
+                if (/^\s*<(pre|ul|ol|li)/.test(p)) return p;
+                return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+            }).join('');
+            return s;
+        }
+
+        function toast(msg, kind = 'info', ms = 3200) {
+            const el = document.createElement('div');
+            el.className = `toast ${kind}`;
+            el.textContent = msg;
+            $('toastWrap').appendChild(el);
+            setTimeout(() => el.remove(), ms);
+        }
+
+        function addMessage(role, html) {
+            const container = $('chatMessages');
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerHTML = html;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+            return div;
+        }
+
+        async function api(path, options = {}) {
+            const res = await fetch(`${API_URL}${path}`, options);
+            let data = null;
+            try { data = await res.json(); } catch { /* empty body */ }
+            if (!res.ok) {
+                const detail = data && data.detail ? data.detail : `HTTP ${res.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+            return data;
+        }
+
+        // ── Health check ──
+        async function checkHealth() {
+            try {
+                const h = await api('/health');
+                $('apiDot').className = 'dot on';
+                $('apiLabel').textContent = `API online · ${h.provider || 'llm'}:${h.model}${h.llm_configured ? '' : ' · NOT CONFIGURED'}`;
+                if (!h.llm_configured) toast('No LLM backend found. Run Ollama locally or set OPENAI_API_KEY in backend/.env.', 'error', 6000);
+            } catch {
+                $('apiDot').className = 'dot off';
+                $('apiLabel').textContent = `API offline (${API_URL})`;
+            }
+        }
+
+        // ── Upload ──
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault(); uploadZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+        chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !busy) sendMessage(); });
+        $('resetBtn').addEventListener('click', resetSession);
+        $('sheetSelect').addEventListener('change', (e) => switchSheet(e.target.value));
+
+        async function handleFile(file) {
+            if (busy) return;
+            busy = true;
+            uploadZone.classList.remove('dragover');
+            $('uploadMeta').textContent = `Uploading ${file.name} (${(file.size / 1024).toFixed(0)} KB)…`;
+
+            const loadingDiv = addMessage('assistant', '<span class="loading"></span> Profiling <strong>' + escapeHtml(file.name) + '</strong>…');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const data = await api('/upload', { method: 'POST', body: formData });
+
+                // New upload = new session; clear previous state
+                sessionId = data.session_id;
+                $('summaryPanel').classList.add('active');
+                $('chatPanel').classList.add('active');
+                $('chatMessages').innerHTML = '';
+                $('uploadMeta').textContent = `${data.data_summary.rows.toLocaleString()} rows · ${data.data_summary.columns} columns · sheets: ${data.data_summary.sheets.join(', ')}`;
+
+                renderSummary(data.data_summary);
+                renderSchema(data.data_summary);
+                renderSheetSelector(data.data_summary);
+                renderClarifyingQuestions(data.clarification_questions || []);
+                renderSuggestedChips(data.suggested_questions || []);
+
+                chatInput.disabled = false; sendBtn.disabled = false;
+                chatInput.placeholder = 'Ask a question about your data…';
+
+                loadingDiv.remove();
+                addMessage('assistant', renderMarkdown(
+                    `✅ Loaded **${data.data_summary.filename}** — ${data.data_summary.rows.toLocaleString()} rows × ${data.data_summary.columns} columns on sheet \`${data.data_summary.active_sheet}\`.\n\nAsk me anything. Try: *"Show a bar chart of the top categories"* or *"What's the correlation between numeric columns?"*`
+                ));
+            } catch (err) {
+                loadingDiv.remove();
+                toast(err.message, 'error', 6000);
+                addMessage('assistant', `<span class="error">❌ Upload failed: ${escapeHtml(err.message)}</span>`);
+            } finally {
+                busy = false;
+                fileInput.value = '';
+                setTimeout(() => { $('uploadMeta').textContent = $('uploadMeta').textContent.startsWith('Uploading') ? '' : $('uploadMeta').textContent; }, 100);
+            }
+        }
+
+        function renderSummary(profile) {
+            const cards = [
+                ['Rows', profile.rows.toLocaleString()],
+                ['Columns', profile.columns],
+                ['Numeric', profile.numeric_count],
+                ['Categorical', profile.categorical_count],
+            ];
+            if (profile.date_columns && profile.date_columns.length) cards.push(['Date cols', profile.date_columns.length]);
+            if (profile.sheets && profile.sheets.length > 1) cards.push(['Sheets', profile.sheets.length]);
+            $('dataSummary').innerHTML = cards.map(([label, value]) =>
+                `<div class="stat-card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(String(value))}</div></div>`
+            ).join('');
+        }
+
+        function renderSchema(profile) {
+            const rows = (profile.column_profiles || []).map(p => {
+                const kind = p.kind || 'other';
+                let extra = '';
+                if (kind === 'numeric' && p.mean != null) extra = `range ${fmt(p.min)}–${fmt(p.max)} · mean ${fmt(p.mean)}`;
+                else if (p.top_values) extra = Object.keys(p.top_values).slice(0, 3).join(', ');
+                else if (p.min_date) extra = `${(p.min_date || '').slice(0, 10)} → ${(p.max_date || '').slice(0, 10)}`;
+                return `<tr>
+                    <td><code>${escapeHtml(p.name)}</code></td>
+                    <td><span class="kind-tag ${escapeHtml(kind)}">${escapeHtml(kind)}</span></td>
+                    <td>${escapeHtml(String(p.unique_count))}</td>
+                    <td>${escapeHtml(String(p.null_count))}</td>
+                    <td style="color:var(--muted)">${escapeHtml(extra)}</td>
+                </tr>`;
+            }).join('');
+            $('schemaTable').innerHTML = `<tr><th>Column</th><th>Type</th><th>Unique</th><th>Null</th><th>Notes</th></tr>${rows}`;
+        }
+
+        function fmt(n) { return n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: 3 }); }
+
+        function renderSheetSelector(summary) {
+            const sheets = summary.sheets || [];
+            const row = $('sheetRow');
+            if (sheets.length <= 1) { row.style.display = 'none'; return; }
+            row.style.display = 'flex';
+            $('sheetSelect').innerHTML = sheets.map(s =>
+                `<option value="${escapeHtml(s)}" ${s === summary.active_sheet ? 'selected' : ''}>${escapeHtml(s)}</option>`
+            ).join('');
+        }
+
+        async function switchSheet(name) {
+            if (!sessionId || busy) return;
+            busy = true;
+            try {
+                const data = await api('/sheet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId, sheet: name })
+                });
+                addMessage('assistant', `Switched active sheet to <strong>${escapeHtml(data.active_sheet)}</strong> (${data.rows.toLocaleString()} rows × ${data.columns} columns). Questions now run against this sheet.`);
+            } catch (err) {
+                toast(err.message, 'error');
+            } finally { busy = false; }
+        }
+
+        // ── Clarifications (inline, no prompt()) ──
+        function renderClarifyingQuestions(questions) {
+            const panel = $('clarifyPanel');
+            const list = $('questionsList');
+            if (!questions.length) { panel.classList.remove('active'); return; }
+            panel.classList.add('active');
+            list.innerHTML = '';
+            questions.forEach((q) => {
+                const item = document.createElement('div');
+                item.className = 'question-item';
+
+                const text = document.createElement('span');
+                text.className = 'qtext';
+                text.textContent = q;
+
+                const row = document.createElement('div');
+                row.className = 'qrow';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = 'Your answer (optional)…';
+                const btn = document.createElement('button');
+                btn.className = 'btn small';
+                btn.textContent = 'Save';
+                btn.addEventListener('click', async () => {
+                    const answer = input.value.trim();
+                    if (!answer) { toast('Type an answer first'); return; }
+                    btn.disabled = true;
+                    try {
+                        await submitClarification(`${q} — ${answer}`);
+                        item.remove();
+                        if (!list.children.length) panel.classList.remove('active');
+                    } finally { btn.disabled = false; }
+                });
+                row.append(input, btn);
+                item.append(text, row);
+                list.appendChild(item);
+            });
+        }
+
+        async function submitClarification(text) {
+            await api('/clarify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId, clarification: text })
+            });
+            addMessage('assistant', `✅ Context saved: <em>${escapeHtml(text)}</em>`);
+        }
+
+        function renderSuggestedChips(questions) {
+            const container = $('suggestedChips');
+            container.innerHTML = '';
+            questions.forEach(q => {
+                const chip = document.createElement('span');
+                chip.className = 'chip';
+                chip.textContent = q;
+                chip.addEventListener('click', () => { chatInput.value = q; sendMessage(); });
+                container.appendChild(chip);
+            });
+        }
+
+        // ── Chat ──
+        async function sendMessage() {
+            const text = chatInput.value.trim();
+            if (!text || busy || !sessionId) return;
+
+            chatInput.value = '';
+            addMessage('user', escapeHtml(text));
+            busy = true; sendBtn.disabled = true;
+
+            const loadingDiv = addMessage('assistant', '<span class="loading"></span> Analyzing &amp; generating code…');
+
+            try {
+                const data = await api('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId, message: text })
+                });
+                loadingDiv.remove();
+                renderAssistantReply(data);
+            } catch (err) {
+                loadingDiv.remove();
+                addMessage('assistant', `<span class="error">❌ ${escapeHtml(err.message)}</span>`);
+            } finally {
+                busy = false; sendBtn.disabled = false; chatInput.focus();
+            }
+        }
+
+        function renderAssistantReply(data) {
+            const parts = [renderMarkdown(data.answer || '')];
+
+            if (data.generated_code) {
+                parts.push(`<pre class="code-block">${escapeHtml(data.generated_code)}</pre>`);
+            }
+            if (data.result_preview !== null && data.result_preview !== undefined) {
+                parts.push(`<div class="result-preview"><strong>📊 Result</strong><br>${formatResult(data.result_preview)}</div>`);
+            }
+            if (data.chart) {
+                parts.push(`
+                    <div class="chart-container">
+                        <img src="data:image/png;base64,${escapeHtml(data.chart)}" alt="Chart">
+                        ${data.chart_type ? `<div class="chart-label">📈 ${escapeHtml(data.chart_type)} chart</div>` : ''}
+                    </div>`);
+            }
+
+            const meta = [];
+            if (data.execution_ms != null) meta.push(`${data.execution_ms} ms`);
+            if (data.attempts > 1) meta.push(`${data.attempts} attempts (self-repaired)`);
+            if (meta.length) parts.push(`<div class="meta-line">${escapeHtml(meta.join(' · '))}</div>`);
+
+            const div = addMessage('assistant', parts.join(''));
+
+            // Action buttons: copy code, download chart
+            if (data.generated_code || data.chart) {
+                const actions = document.createElement('div');
+                actions.className = 'msg-actions';
+                if (data.generated_code) {
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'btn ghost small';
+                    copyBtn.textContent = '📋 Copy code';
+                    copyBtn.addEventListener('click', async () => {
+                        try {
+                            await navigator.clipboard.writeText(data.generated_code);
+                            copyBtn.textContent = '✅ Copied';
+                            setTimeout(() => copyBtn.textContent = '📋 Copy code', 1500);
+                        } catch { toast('Clipboard unavailable'); }
+                    });
+                    actions.appendChild(copyBtn);
+                }
+                if (data.chart) {
+                    const dl = document.createElement('button');
+                    dl.className = 'btn ghost small';
+                    dl.textContent = '⬇ Download chart';
+                    dl.addEventListener('click', () => {
+                        const a = document.createElement('a');
+                        a.href = `data:image/png;base64,${data.chart}`;
+                        a.download = `chart-${Date.now()}.png`;
+                        a.click();
+                    });
+                    actions.appendChild(dl);
+                }
+                div.appendChild(actions);
+            }
+        }
+
+        function formatResult(result) {
+            if (Array.isArray(result)) {
+                if (result.length === 0) return '<em>Empty result</em>';
+                if (typeof result[0] === 'object' && result[0] !== null) {
+                    const keys = Object.keys(result[0]);
+                    let html = '<table><tr>' + keys.map(k => `<th>${escapeHtml(k)}</th>`).join('') + '</tr>';
+                    result.slice(0, 12).forEach(row => {
+                        html += '<tr>' + keys.map(k => `<td>${escapeHtml(fmtCell(row[k]))}</td>`).join('') + '</tr>';
+                    });
+                    if (result.length > 12) html += `<tr><td colspan="${keys.length}" style="color:var(--muted)">… ${result.length - 12} more rows</td></tr>`;
+                    return html + '</table>';
+                }
+                return result.slice(0, 20).map(v => escapeHtml(fmtCell(v))).join(', ');
+            }
+            if (typeof result === 'object' && result !== null) {
+                return '<table>' + Object.entries(result).map(([k, v]) =>
+                    `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(fmtCell(v))}</td></tr>`).join('') + '</table>';
+            }
+            return escapeHtml(fmtCell(result));
+        }
+
+        function fmtCell(v) {
+            if (v === null || v === undefined) return '—';
+            if (typeof v === 'number') return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+            return String(v);
+        }
+
+        async function resetSession() {
+            if (!sessionId) return;
+            try {
+                await api(`/session/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+            } catch { /* session may already be gone */ }
+            sessionId = null;
+            $('summaryPanel').classList.remove('active');
+            $('clarifyPanel').classList.remove('active');
+            $('sheetRow').style.display = 'none';
+            $('dataSummary').innerHTML = '';
+            $('suggestedChips').innerHTML = '';
+            $('chatMessages').innerHTML = '';
+            addMessage('assistant', '🗑️ Session cleared. Upload a new file to start over.');
+            chatInput.disabled = true; sendBtn.disabled = true;
+            chatInput.placeholder = 'Upload a file to start asking questions…';
+            $('uploadMeta').textContent = '';
+        }
+
+        checkHealth();
+        setInterval(checkHealth, 30000);
+    })();
+    </script>
+</body>
+</html>
