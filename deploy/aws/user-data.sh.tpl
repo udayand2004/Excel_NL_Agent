@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euxo pipefail
 
-exec > >(tee -a /var/log/excel-agent-bootstrap.log) 2>&1
+exec > >(tee -a /var/log/cloud-init-excel-agent.log) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -22,6 +22,25 @@ curl -fsSL "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debia
 dpkg -i /tmp/amazon-ssm-agent.deb || apt-get install -f -y
 systemctl enable --now amazon-ssm-agent
 
+# The long-running bootstrap is a systemd unit, not a cloud-init script, so
+# model downloads are not interrupted by cloud-init timeouts.
+mkdir -p /opt/excel-agent
+cat >/opt/excel-agent/bootstrap.sh <<'BOOTSTRAP'
+#!/bin/bash
+set -euxo pipefail
+exec > >(tee -a /var/log/excel-agent-bootstrap.log) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+# Give the t3.medium memory headroom for the model and pandas.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+swapon /swapfile || true
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
 # Ollama (CPU inference)
 curl -fsSL https://ollama.com/install.sh | sh
 mkdir -p /etc/systemd/system/ollama.service.d
@@ -34,7 +53,7 @@ OLLAMA_OVERRIDE
 systemctl daemon-reload
 systemctl enable --now ollama
 
-# Caddy provides automatic HTTPS for the API
+# Caddy provides automatic HTTPS for the API.
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
   | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
@@ -42,6 +61,7 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
 apt-get update
 apt-get install -y caddy
 systemctl stop caddy
+systemctl enable caddy
 
 # Application install
 id -u excelagent >/dev/null 2>&1 || useradd --system --home /opt/excel-agent --shell /usr/sbin/nologin excelagent
@@ -95,6 +115,7 @@ APP_UNIT
 
 systemctl daemon-reload
 systemctl enable excel-agent
+systemctl restart excel-agent
 
 # Wait for Ollama, then pull the model and create an 8k-context variant.
 for i in $(seq 1 90); do
@@ -113,15 +134,6 @@ ollama create __CUSTOM_MODEL__ -f /tmp/excel-agent.Modelfile
 sed -i 's|^OLLAMA_MODEL=.*|OLLAMA_MODEL=__CUSTOM_MODEL__|' /etc/excel-agent.env
 systemctl restart excel-agent
 
-# Give the t3.medium some memory headroom for the model and pandas.
-if [ ! -f /swapfile ]; then
-  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
-  chmod 600 /swapfile
-  mkswap /swapfile
-fi
-swapon /swapfile || true
-grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-
 # Caddy is started after the Elastic IP is associated by the provisioner.
 cat >/etc/caddy/Caddyfile <<'CADDYFILE'
 __PUBLIC_IP__.sslip.io {
@@ -134,3 +146,24 @@ CADDYFILE
 
 touch /opt/excel-agent/ready
 echo "bootstrap complete"
+BOOTSTRAP
+chmod 700 /opt/excel-agent/bootstrap.sh
+
+cat >/etc/systemd/system/excel-agent-bootstrap.service <<'BOOTSTRAP_UNIT'
+[Unit]
+Description=Excel AI Agent bootstrap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/excel-agent/bootstrap.sh
+TimeoutStartSec=3600
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+BOOTSTRAP_UNIT
+
+systemctl daemon-reload
+systemctl enable --now excel-agent-bootstrap.service

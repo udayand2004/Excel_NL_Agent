@@ -242,6 +242,7 @@ RUN_ARGS=(
   --iam-instance-profile "Name=$PROFILE_NAME"
   --security-group-ids "$SG_ID"
   --subnet-id "$SUBNET_ID"
+  --associate-public-ip-address
   --user-data "file://$USER_DATA"
   --block-device-mappings "file://$BLOCK_DEVICE_MAP"
   --metadata-options 'HttpTokens=required,HttpEndpoint=enabled,HttpPutResponseHopLimit=2'
