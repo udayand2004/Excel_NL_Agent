@@ -127,12 +127,6 @@ cat >"$S3_POLICY_FILE" <<JSON
       "Effect": "Allow",
       "Action": ["s3:GetObject"],
       "Resource": ["arn:aws:s3:::${S3_BUCKET}/releases/*"]
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::${S3_BUCKET}"],
-      "Condition": {"StringLike": {"s3:prefix": ["releases/*"]}}
     }
   ]
 }
@@ -146,6 +140,7 @@ if ! aws iam get-instance-profile --instance-profile-name "$PROFILE_NAME" >/dev/
 fi
 aws iam add-role-to-instance-profile --instance-profile-name "$PROFILE_NAME" \
   --role-name "$ROLE_NAME" >/dev/null 2>&1 || true
+sleep 10
 
 echo "==> Creating security group"
 VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true \
@@ -324,6 +319,7 @@ START_PARAMS="$(mktemp)"
 cat >"$START_PARAMS" <<'JSON'
 {
   "commands": [
+    "systemctl enable caddy",
     "systemctl restart caddy",
     "sleep 5",
     "systemctl is-active caddy",

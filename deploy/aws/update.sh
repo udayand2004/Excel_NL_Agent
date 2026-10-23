@@ -45,7 +45,7 @@ cat >"$PARAMS" <<JSON
 {
   "commands": [
     "set -e",
-    "aws s3 cp s3://$S3_BUCKET/releases/excel-ai-agent.tar.gz /tmp/excel-ai-agent.tar.gz --region $AWS_REGION",
+    "aws s3api get-object --bucket $S3_BUCKET --key releases/excel-ai-agent.tar.gz --region $AWS_REGION /tmp/excel-ai-agent.tar.gz",
     "tar -xzf /tmp/excel-ai-agent.tar.gz -C /opt/excel-agent",
     "/opt/excel-agent/venv/bin/pip install -r /opt/excel-agent/backend/requirements.txt",
     "chown -R excelagent:excelagent /opt/excel-agent",

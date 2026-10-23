@@ -47,7 +47,11 @@ systemctl stop caddy
 id -u excelagent >/dev/null 2>&1 || useradd --system --home /opt/excel-agent --shell /usr/sbin/nologin excelagent
 mkdir -p /opt/excel-agent /var/lib/excel-agent
 
-aws s3 cp "s3://__S3_BUCKET__/releases/excel-ai-agent.tar.gz" /tmp/excel-ai-agent.tar.gz --region __AWS_REGION__
+aws s3api get-object \
+  --bucket "__S3_BUCKET__" \
+  --key "releases/excel-ai-agent.tar.gz" \
+  --region "__AWS_REGION__" \
+  /tmp/excel-ai-agent.tar.gz
 tar -xzf /tmp/excel-ai-agent.tar.gz -C /opt/excel-agent
 
 python3 -m venv /opt/excel-agent/venv
