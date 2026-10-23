@@ -17,6 +17,9 @@ python main.py         # http://localhost:8000
 
 ### 2. Frontend
 
+The backend serves `frontend/` automatically, so opening
+**http://localhost:8000** is enough. For standalone static development:
+
 ```bash
 cd frontend
 python3 -m http.server 3000
@@ -58,6 +61,21 @@ Upload → FastAPI → Pandas profile → LLM (code + chart plan)
 - **Sessions**: in-memory, TTL-expired, LRU-bounded.
 - **Charts**: bar, line, scatter, pie, heatmap, box, area, histogram — chosen by the LLM from the result shape.
 
+## Deployment
+
+- **Backend**: AWS EC2 (`t3.medium`, Ubuntu 24.04) running FastAPI + Ollama
+  (`qwen2.5:3b`), with Caddy providing HTTPS. See
+  [`deploy/aws/README.md`](deploy/aws/README.md).
+- **Frontend**: Vercel static deployment. `npm run build` copies `frontend/`
+  into `dist/`; set `frontend/config.js` to the AWS backend URL before deploying.
+- **Code mirror**: the repository is pushed to GitHub and, when available, to
+  AWS CodeCommit.
+
+```bash
+AWS_PROFILE=aws-agent AWS_REGION=us-west-2 ./deploy/aws/provision.sh
+npm run build
+```
+
 ## Project Structure
 
 ```
@@ -76,6 +94,13 @@ backend/
     routers/           # upload, chat, health
 frontend/
   index.html           # single-file UI (XSS-safe, no build step)
+  config.js            # backend URL injected at deploy time
+scripts/
+  build-frontend.mjs   # copies frontend/ to dist/ for Vercel
+deploy/aws/
+  provision.sh         # create EC2 + Ollama + Caddy + IAM/S3
+  update.sh            # redeploy backend code
+  teardown.sh          # destroy all created resources
 ```
 
 ## License

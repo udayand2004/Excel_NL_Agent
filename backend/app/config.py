@@ -9,7 +9,11 @@ from typing import List
 
 from dotenv import load_dotenv
 
-load_dotenv()
+_env_file = os.getenv("EXCEL_AGENT_ENV", "").strip()
+if _env_file:
+    load_dotenv(dotenv_path=_env_file)
+else:
+    load_dotenv()
 
 
 def _csv_env(name: str, default: str) -> List[str]:

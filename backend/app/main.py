@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__
 from .config import get_settings
@@ -22,6 +26,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 300
+
+
+def _resolve_frontend_dir() -> Path | None:
+    """Locate the static frontend in dev, PyInstaller, or a custom install."""
+    candidates = []
+    configured = os.getenv("EXCEL_AGENT_FRONTEND_DIR", "").strip()
+    if configured:
+        candidates.append(Path(configured))
+
+    if getattr(sys, "frozen", False):
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        candidates.extend((bundle_root / "frontend", Path(sys.executable).parent / "frontend"))
+    else:
+        candidates.append(Path(__file__).resolve().parents[2] / "frontend")
+
+    for candidate in candidates:
+        if candidate.is_dir() and (candidate / "index.html").is_file():
+            return candidate
+    return None
 
 
 async def _session_cleanup_loop(store: SessionStore) -> None:
@@ -82,6 +105,13 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(upload.router)
     app.include_router(chat.router)
+
+    frontend_dir = _resolve_frontend_dir()
+    if frontend_dir is not None:
+        app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+        logger.info("Serving frontend from %s", frontend_dir)
+    else:
+        logger.warning("Frontend directory not found; running API-only")
 
     return app
 

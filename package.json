@@ -1,0 +1,12 @@
+{
+  "name": "excel-ai-agent",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Excel AI Agent static frontend build for Vercel",
+  "scripts": {
+    "build": "node scripts/build-frontend.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
