@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 SYSTEM_CODE = (
     "You are an expert Python data analyst. You write ONLY valid Python code using "
     "pandas and numpy. Never use markdown fences. Never import modules other than "
-    "pandas/numpy/math/statistics/datetime. Never access files, network, or "
+    "pandas/numpy/math/statistics/datetime. Never import matplotlib; the application "
+    "renders charts separately from the returned data. Never access files, network, or "
     "dunder attributes. Always assign the final answer to a variable called `result`."
 )
 
@@ -174,6 +175,7 @@ Rules:
 3. Assign the final answer to `result`. Cap DataFrames: `result = result.head(50)`.
 4. For chart-friendly output prefer tidy DataFrames with named columns (e.g. groupby().reset_index()).
 5. Handle missing values sensibly. Use only pandas/numpy/math/statistics/datetime.
+   Do not import or call matplotlib; return chart-friendly data instead.
 6. No print statements for the answer; no file/network access; no dunder attributes.
 
 {repair_section}
@@ -249,8 +251,9 @@ Return JSON:
         result_preview: Any,
         summary: DataSummary,
         stdout: str = "",
+        sheets: Optional[Dict[str, Any]] = None,
     ) -> str:
-        description = generate_data_description(summary, {})
+        description = generate_data_description(summary, sheets or {})
         result_str = json.dumps(result_preview, default=str)
         if len(result_str) > 2500:
             result_str = result_str[:2500] + "… [truncated]"
@@ -279,9 +282,13 @@ that are not in the result. Use simple markdown: **bold**, `code`, and lists."""
         )
 
     async def friendly_error(
-        self, question: str, error: str, summary: DataSummary
+        self,
+        question: str,
+        error: str,
+        summary: DataSummary,
+        sheets: Optional[Dict[str, Any]] = None,
     ) -> str:
-        description = generate_data_description(summary, {})
+        description = generate_data_description(summary, sheets or {})
         prompt = f"""The user asked: {question}
 Data profile: {description[:1500]}
 Error: {error}

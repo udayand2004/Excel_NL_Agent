@@ -221,7 +221,10 @@ def execute_safely(
     timeout: float = 10.0,
 ) -> ExecutionResult:
     """Execute generated code in a separate process with a timeout."""
-    validate_code(code)  # fail fast before spawning
+    try:
+        validate_code(code)  # fail fast before spawning
+    except SandboxError as exc:
+        return ExecutionResult(value=None, stdout="", ok=False, error=str(exc))
 
     ctx = mp.get_context("fork")
     queue: mp.Queue = ctx.Queue()

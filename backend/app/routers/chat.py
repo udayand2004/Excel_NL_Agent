@@ -41,6 +41,18 @@ def _preview(value):
     return to_jsonable(value)
 
 
+async def _friendly_error(llm, question: str, error: str, summary, sheets) -> str:
+    try:
+        return await llm.friendly_error(question, error, summary, sheets)
+    except Exception:  # noqa: BLE001 - never mask the original failure with a 500
+        logger.exception("Friendly error generation failed")
+        return (
+            f"I couldn't complete that analysis ({error}). "
+            "Try rephrasing with explicit column names, or ask something simpler like "
+            "'what are the summary statistics?'."
+        )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
     settings = request.app.state.settings
@@ -101,6 +113,7 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
                     result_preview=preview,
                     summary=summary,
                     stdout=execution.stdout,
+                    sheets=session.sheets,
                 )
 
                 execution_ms = int((time.perf_counter() - started) * 1000)
@@ -122,7 +135,9 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             logger.warning("Code attempt %s failed: %s", attempt, last_error)
 
         # All attempts failed — explain the last error to the user.
-        explanation = await llm.friendly_error(question, last_error or "unknown", summary)
+        explanation = await _friendly_error(
+            llm, question, last_error or "unknown", summary, session.sheets
+        )
         session.history.append({"role": "assistant", "content": explanation})
         return ChatResponse(
             session_id=session.session_id,
@@ -141,7 +156,9 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
         return ChatResponse(session_id=session.session_id, answer=answer, generated_code=code)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Unexpected failure in /chat")
-        answer = await llm.friendly_error(question, f"{type(exc).__name__}: {exc}", summary)
+        answer = await _friendly_error(
+            llm, question, f"{type(exc).__name__}: {exc}", summary, session.sheets
+        )
         session.history.append({"role": "assistant", "content": answer})
         return ChatResponse(session_id=session.session_id, answer=answer, generated_code=code)
 

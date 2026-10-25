@@ -137,7 +137,9 @@ def suggest_questions(summary: DataSummary) -> List[str]:
     return questions[:6]
 
 
-def generate_data_description(summary: DataSummary, sheets: Dict[str, pd.DataFrame]) -> str:
+def generate_data_description(
+    summary: DataSummary, sheets: Dict[str, pd.DataFrame] | None = None
+) -> str:
     """Compact natural-language description of the active sheet for LLM prompts."""
     lines = [
         f"File: {summary.filename}",
@@ -158,6 +160,8 @@ def generate_data_description(summary: DataSummary, sheets: Dict[str, pd.DataFra
             desc += f"; dates {p.min_date} .. {p.max_date}"
         lines.append(desc)
 
-    preview = to_jsonable(sheets[summary.active_sheet].head(5).to_dict(orient="records"))
-    lines.extend(["", "Sample rows:", json.dumps(preview, indent=2, default=str)])
+    frame = sheets.get(summary.active_sheet) if sheets else None
+    if frame is not None and not frame.empty:
+        preview = to_jsonable(frame.head(5).to_dict(orient="records"))
+        lines.extend(["", "Sample rows:", json.dumps(preview, indent=2, default=str)])
     return "\n".join(lines)
