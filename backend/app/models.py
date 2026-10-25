@@ -111,6 +111,8 @@ class HealthResponse(BaseModel):
     version: str
     model: str
     provider: str
+    fallback_provider: Optional[str] = None
+    fallback_model: Optional[str] = None
     llm_configured: bool
     sessions_active: int
     python_version: str

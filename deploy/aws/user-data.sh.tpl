@@ -27,7 +27,7 @@ systemctl enable --now amazon-ssm-agent
 mkdir -p /opt/excel-agent
 cat >/opt/excel-agent/bootstrap.sh <<'BOOTSTRAP'
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 exec > >(tee -a /var/log/excel-agent-bootstrap.log) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
@@ -79,9 +79,22 @@ python3 -m venv /opt/excel-agent/venv
 /opt/excel-agent/venv/bin/pip install -r /opt/excel-agent/backend/requirements.txt
 chown -R excelagent:excelagent /opt/excel-agent
 
+GROQ_API_KEY=""
+if aws ssm get-parameter \
+  --name "__GROQ_PARAM_NAME__" \
+  --with-decryption \
+  --region "__AWS_REGION__" \
+  --query Parameter.Value \
+  --output text >/tmp/excel-agent-groq-key 2>/dev/null; then
+  GROQ_API_KEY="$(cat /tmp/excel-agent-groq-key)"
+fi
+rm -f /tmp/excel-agent-groq-key
+
 cat >/etc/excel-agent.env <<'APP_ENV'
 OLLAMA_HOST=127.0.0.1:11434
 OLLAMA_MODEL=__OLLAMA_MODEL__
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MODEL=qwen/qwen3.8-27b
 HOST=127.0.0.1
 PORT=8000
 CORS_ORIGINS=__CORS_ORIGINS__
@@ -91,6 +104,10 @@ MAX_SESSIONS=50
 CODE_TIMEOUT_SECONDS=15
 MAX_CODE_RETRIES=2
 APP_ENV
+if [ -n "$GROQ_API_KEY" ]; then
+  printf 'GROQ_API_KEY=%s\n' "$GROQ_API_KEY" >>/etc/excel-agent.env
+fi
+unset GROQ_API_KEY
 chmod 600 /etc/excel-agent.env
 
 cat >/etc/systemd/system/excel-agent.service <<'APP_UNIT'

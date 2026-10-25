@@ -52,6 +52,11 @@ if [ -n "${S3_BUCKET:-}" ]; then
   aws s3api delete-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1 || true
 fi
 
+if [ -n "${GROQ_PARAM_NAME:-}" ]; then
+  echo "==> Deleting SSM parameter $GROQ_PARAM_NAME"
+  aws ssm delete-parameter --name "$GROQ_PARAM_NAME" >/dev/null 2>&1 || true
+fi
+
 if [ -n "${KEY_PATH:-}" ] && [ -f "$KEY_PATH" ]; then
   rm -f "$KEY_PATH"
 fi

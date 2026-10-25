@@ -1,8 +1,9 @@
 # AWS backend deployment
 
 This deploys the FastAPI backend to a single EC2 instance in the project's
-selected Region (`us-west-2`), runs Ollama locally with `qwen2.5:3b`, and puts
-Caddy in front for automatic HTTPS.
+selected Region (`us-west-2`). Groq (`qwen/qwen3.8-27b`) is the primary LLM;
+Ollama with `qwen2.5:3b` is installed as the automatic fallback. Caddy provides
+HTTPS.
 
 The Vercel frontend is deployed separately and points at the resulting
 `https://<elastic-ip>.sslip.io` URL.
@@ -11,10 +12,11 @@ The Vercel frontend is deployed separately and points at the resulting
 
 | Resource | Purpose | Approximate cost |
 | --- | --- | --- |
-| `t3.medium` EC2 | FastAPI + Ollama CPU inference | ~$30/month |
+| `t3.medium` EC2 | FastAPI + Groq calls + Ollama fallback | ~$30/month |
 | 30 GB gp3 EBS | OS, Python packages, Ollama model | ~$2.40/month |
 | Elastic IP | Stable HTTPS hostname | free while attached |
 | S3 bucket | Deployment artifact | pennies |
+| SSM SecureString | Groq API key | free |
 | IAM role/profile | S3 read + SSM access | free |
 | Security group | ports 80/443 (and SSH from your current IP) | free |
 
@@ -39,9 +41,13 @@ From the repository root:
 AWS_PROFILE=aws-agent AWS_REGION=us-west-2 ./deploy/aws/provision.sh
 ```
 
-The script builds `dist/excel-ai-agent.tar.gz`, uploads it to S3, creates the
-IAM role/security group/Elastic IP, launches the instance, waits for bootstrap
-and the Ollama model download, starts Caddy, and polls `/health`.
+The script builds `dist/excel-ai-agent.tar.gz`, uploads it to S3, stores the
+Groq key from `backend/.env` in SSM Parameter Store, creates the IAM
+role/security group/Elastic IP, launches the instance, waits for bootstrap and
+the Ollama model download, starts Caddy, and polls `/health`.
+
+If `GROQ_API_KEY` is not set in `backend/.env` (or the environment), the deploy
+still succeeds but the backend runs with Ollama only.
 
 The final URL and resource IDs are written to `deploy/aws/.state` (gitignored).
 
@@ -110,6 +116,11 @@ group, IAM role/profile, S3 bucket, and the local SSH key. The CodeCommit mirror
 
 - The API is public and has no user authentication. Do not upload confidential
   spreadsheets until you add an authentication layer.
+- Groq receives the data description, sample rows, and analysis result previews
+  needed to answer a question. Do not use this deployment for regulated data
+  without reviewing that data flow.
+- The Groq key is stored as an SSM SecureString and injected into the backend
+  environment at boot; it is never written to the deployment artifact.
 - Ollama listens only on `127.0.0.1` and is never exposed directly.
 - The FastAPI process listens on `127.0.0.1:8000`; only Caddy is public.
 - Uploaded files are written to a temporary file, profiled, and deleted.

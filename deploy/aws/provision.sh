@@ -27,6 +27,7 @@ CUSTOM_MODEL="${CUSTOM_MODEL:-excel-agent-qwen}"
 VOLUME_SIZE="${VOLUME_SIZE:-30}"
 CORS_ORIGINS="${CORS_ORIGINS:-*}"
 SSH_CIDR="${SSH_CIDR:-}"
+GROQ_PARAM_NAME="${GROQ_PARAM_NAME:-/excel-ai-agent/groq-api-key}"
 
 export AWS_PROFILE AWS_REGION
 
@@ -38,6 +39,9 @@ for required in aws tar curl python3; do
 done
 
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+if [ -z "${GROQ_API_KEY:-}" ] && [ -f "$ROOT_DIR/backend/.env" ]; then
+  GROQ_API_KEY="$(grep '^GROQ_API_KEY=' "$ROOT_DIR/backend/.env" | head -1 | cut -d= -f2- | tr -d '\r')"
+fi
 S3_BUCKET="${S3_BUCKET:-excel-ai-agent-deploy-${AWS_ACCOUNT_ID}-${AWS_REGION}}"
 ROLE_NAME="${ROLE_NAME:-ExcelAIAgentEC2Role}"
 PROFILE_NAME="${PROFILE_NAME:-ExcelAIAgentEC2Profile}"
@@ -96,6 +100,18 @@ if ! aws s3api head-bucket --bucket "$S3_BUCKET" >/dev/null 2>&1; then
 fi
 aws s3 cp "$ARTIFACT" "s3://$S3_BUCKET/releases/excel-ai-agent.tar.gz" >/dev/null
 
+if [ -n "${GROQ_API_KEY:-}" ]; then
+  echo "==> Storing Groq API key in SSM Parameter Store"
+  aws ssm put-parameter \
+    --name "$GROQ_PARAM_NAME" \
+    --type SecureString \
+    --value "$GROQ_API_KEY" \
+    --overwrite \
+    --description "Groq API key for Excel AI Agent" >/dev/null
+else
+  echo "==> GROQ_API_KEY not found; the backend will run with Ollama only"
+fi
+
 echo "==> Creating IAM role and instance profile"
 TRUST_FILE="$(mktemp)"
 cat >"$TRUST_FILE" <<'JSON'
@@ -127,6 +143,17 @@ cat >"$S3_POLICY_FILE" <<JSON
       "Effect": "Allow",
       "Action": ["s3:GetObject"],
       "Resource": ["arn:aws:s3:::${S3_BUCKET}/releases/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter"],
+      "Resource": ["arn:aws:ssm:${AWS_REGION}:${AWS_ACCOUNT_ID}:parameter${GROQ_PARAM_NAME}"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"kms:ViaService": "ssm.${AWS_REGION}.amazonaws.com"}}
     }
   ]
 }
@@ -215,6 +242,7 @@ sed \
   -e "s|__CUSTOM_MODEL__|$CUSTOM_MODEL|g" \
   -e "s|__PUBLIC_IP__|$EIP_PUBLIC|g" \
   -e "s|__CORS_ORIGINS__|$CORS_ORIGINS|g" \
+  -e "s|__GROQ_PARAM_NAME__|$GROQ_PARAM_NAME|g" \
   "$ROOT_DIR/deploy/aws/user-data.sh.tpl" >"$USER_DATA"
 
 cat >"$BLOCK_DEVICE_MAP" <<JSON
@@ -380,6 +408,7 @@ S3_BUCKET=$S3_BUCKET
 SECURITY_GROUP=$SG_ID
 ROLE_NAME=$ROLE_NAME
 PROFILE_NAME=$PROFILE_NAME
+GROQ_PARAM_NAME=$GROQ_PARAM_NAME
 KEY_PATH=$KEY_PATH
 STATE
 chmod 600 "$STATE_FILE"

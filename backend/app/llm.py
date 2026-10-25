@@ -64,33 +64,74 @@ def parse_json(text: str) -> Any:
 class LLMService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        # Works with OpenAI, Ollama (/v1), or any OpenAI-compatible proxy.
-        self.client: Optional[AsyncOpenAI] = AsyncOpenAI(
-            api_key=settings.openai_api_key or "not-needed",
-            base_url=settings.openai_base_url or None,
+        self.primary_client: Optional[AsyncOpenAI] = None
+        self.primary_provider: Optional[str] = None
+        self.primary_model: Optional[str] = None
+        self.fallback_client: Optional[AsyncOpenAI] = None
+        self.fallback_provider: Optional[str] = None
+        self.fallback_model: Optional[str] = None
+
+        if settings.groq_api_key:
+            self.primary_client = self._client(settings.groq_api_key, settings.groq_base_url)
+            self.primary_provider = "groq"
+            self.primary_model = settings.groq_model
+        elif settings.openai_api_key and settings.openai_api_key.lower() != "ollama":
+            self.primary_client = self._client(settings.openai_api_key, settings.openai_base_url)
+            self.primary_provider = "openai" if not settings.openai_base_url else "openai-compatible"
+            self.primary_model = settings.llm_model
+        elif settings.openai_base_url:
+            self.primary_client = self._client("ollama", settings.openai_base_url)
+            self.primary_provider = (
+                "ollama" if "11434" in settings.openai_base_url else "openai-compatible"
+            )
+            self.primary_model = settings.llm_model
+
+        if (
+            self.primary_provider is not None
+            and self.primary_provider != "ollama"
+            and settings.ollama_base_url
+        ):
+            self.fallback_client = self._client("ollama", settings.ollama_base_url)
+            self.fallback_provider = "ollama"
+            self.fallback_model = settings.ollama_model
+
+    @staticmethod
+    def _client(api_key: str, base_url: str) -> AsyncOpenAI:
+        return AsyncOpenAI(
+            api_key=api_key or "not-needed",
+            base_url=base_url or None,
             timeout=120.0,
             max_retries=1,
         )
 
     @property
     def configured(self) -> bool:
-        return bool(self.settings.openai_base_url or self.settings.openai_api_key)
+        return self.primary_client is not None or self.fallback_client is not None
 
-    async def _chat(
+    @property
+    def provider(self) -> str:
+        return self.primary_provider or "none"
+
+    @property
+    def model(self) -> str:
+        return self.primary_model or self.settings.llm_model
+
+    async def _chat_once(
         self,
+        client: AsyncOpenAI,
+        model: str,
         system: str,
         user: str,
         temperature: float,
         max_tokens: int,
-        json_mode: bool = False,
+        json_mode: bool,
     ) -> str:
         kwargs: Dict[str, Any] = {}
-        # Ollama supports response_format on recent models; skip on failure via caller fallback
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         try:
-            response = await self.client.chat.completions.create(
-                model=self.settings.llm_model,
+            response = await client.chat.completions.create(
+                model=model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -103,11 +144,63 @@ class LLMService:
             # Some OpenAI-compatible servers reject response_format — retry once without it
             if json_mode and "response_format" in kwargs:
                 logger.warning("response_format rejected; retrying without it (%s)", exc)
-                return await self._chat(system, user, temperature, max_tokens, json_mode=False)
-            logger.exception("LLM request failed")
-            raise LLMError(str(exc)) from exc
+                return await self._chat_once(
+                    client, model, system, user, temperature, max_tokens, json_mode=False
+                )
+            raise
         content = response.choices[0].message.content or ""
         return content.strip()
+
+    async def _chat(
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool = False,
+    ) -> str:
+        if self.primary_client is None:
+            raise LLMError("No LLM backend is configured")
+
+        try:
+            return await self._chat_once(
+                self.primary_client,
+                self.primary_model or self.settings.llm_model,
+                system,
+                user,
+                temperature,
+                max_tokens,
+                json_mode,
+            )
+        except Exception as exc:
+            if self.fallback_client is None:
+                logger.exception("Primary LLM request failed")
+                raise LLMError(str(exc)) from exc
+
+            logger.warning(
+                "Primary LLM %s/%s failed (%s); falling back to %s/%s",
+                self.primary_provider,
+                self.primary_model,
+                exc,
+                self.fallback_provider,
+                self.fallback_model,
+            )
+            try:
+                return await self._chat_once(
+                    self.fallback_client,
+                    self.fallback_model or self.settings.ollama_model,
+                    system,
+                    user,
+                    temperature,
+                    max_tokens,
+                    json_mode,
+                )
+            except Exception as fallback_exc:
+                logger.exception("Fallback LLM request failed")
+                raise LLMError(
+                    f"primary ({self.primary_provider}): {exc}; "
+                    f"fallback ({self.fallback_provider}): {fallback_exc}"
+                ) from fallback_exc
 
     async def clarification_questions(self, summary: DataSummary, sheets: Dict[str, Any]) -> List[str]:
         description = generate_data_description(summary, sheets)

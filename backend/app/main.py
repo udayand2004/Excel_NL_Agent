@@ -64,11 +64,15 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = asyncio.create_task(_session_cleanup_loop(app.state.sessions))
+        llm = app.state.llm
         logger.info(
-            "Excel AI Agent v%s | model=%s | llm_configured=%s",
+            "Excel AI Agent v%s | provider=%s | model=%s | fallback=%s/%s | llm_configured=%s",
             __version__,
-            settings.llm_model,
-            bool(settings.openai_api_key),
+            llm.provider,
+            llm.model,
+            llm.fallback_provider or "none",
+            llm.fallback_model or "none",
+            llm.configured,
         )
         try:
             yield

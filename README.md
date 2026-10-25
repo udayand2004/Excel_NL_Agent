@@ -1,6 +1,6 @@
 # Excel AI Agent
 
-Full-stack AI agent that analyzes Excel/CSV files and answers natural-language questions with auto-generated charts — **no OpenAI key required** (uses local Ollama by default).
+Full-stack AI agent that analyzes Excel/CSV files and answers natural-language questions with auto-generated charts. **Groq (`qwen/qwen3.8-27b`) is the primary LLM; local Ollama is the automatic fallback.**
 
 ## Quick Start
 
@@ -28,14 +28,17 @@ python3 -m http.server 3000
 
 ## LLM Backends
 
-The server speaks the OpenAI chat-completions protocol, so it works with:
+Groq is used first. If it fails, the backend automatically retries the same
+request against local Ollama.
 
 | Backend | Setup |
 |---------|-------|
-| **Ollama (free, default)** | Run `ollama serve`; auto-detected at `127.0.0.1:11434`. Set `OLLAMA_MODEL` in `.env` (default `qwen2.5:7b`). |
-| **OpenAI** | Set `OPENAI_API_KEY` and optionally `LLM_MODEL=gpt-4o-mini`. |
+| **Groq (primary)** | Set `GROQ_API_KEY` in `backend/.env`. Defaults: `GROQ_MODEL=qwen/qwen3.8-27b`, `GROQ_BASE_URL=https://api.groq.com/openai/v1`. |
+| **Ollama (fallback)** | Run `ollama serve`; auto-detected at `127.0.0.1:11434`. Set `OLLAMA_MODEL` (default `qwen2.5:7b`). |
+| **OpenAI (optional)** | Set `OPENAI_API_KEY` and optionally `LLM_MODEL=gpt-4o-mini`. |
 | **Any compatible proxy** | Set `OPENAI_BASE_URL=http://host:port/v1`, `OPENAI_API_KEY=anything`, `LLM_MODEL=your-model`. |
 
+`GET /health` reports the active provider/model and the configured fallback.
 See `backend/.env.example` for all options.
 
 ## API
@@ -63,9 +66,9 @@ Upload → FastAPI → Pandas profile → LLM (code + chart plan)
 
 ## Deployment
 
-- **Backend**: AWS EC2 (`t3.medium`, Ubuntu 24.04) running FastAPI + Ollama
-  (`qwen2.5:3b`), with Caddy providing HTTPS. See
-  [`deploy/aws/README.md`](deploy/aws/README.md).
+- **Backend**: AWS EC2 (`t3.medium`, Ubuntu 24.04) running FastAPI with Groq
+  (`qwen/qwen3.8-27b`) as primary and Ollama (`qwen2.5:3b`) as fallback, with
+  Caddy providing HTTPS. See [`deploy/aws/README.md`](deploy/aws/README.md).
 - **Frontend**: Vercel static deployment. `npm run build` copies `frontend/`
   into `dist/`; set `frontend/config.js` to the AWS backend URL before deploying.
 - **Code mirror**: the repository is pushed to GitHub and, when available, to

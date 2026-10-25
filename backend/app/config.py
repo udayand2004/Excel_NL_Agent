@@ -15,10 +15,34 @@ if _env_file:
 else:
     load_dotenv()
 
+DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
+
 
 def _csv_env(name: str, default: str) -> List[str]:
     raw = os.getenv(name, default)
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _ollama_host() -> str:
+    return os.getenv("OLLAMA_HOST", "127.0.0.1:11434").strip() or "127.0.0.1:11434"
+
+
+def _ollama_base_url(probe: bool) -> str:
+    host = _ollama_host()
+    if host.startswith(("http://", "https://")):
+        base = host.rstrip("/")
+        return base if base.endswith("/v1") else f"{base}/v1"
+    hostname, _, port = host.partition(":")
+    try:
+        if probe:
+            import socket
+
+            with socket.create_connection((hostname, int(port or "11434")), timeout=0.3):
+                pass
+        return f"http://{host}/v1"
+    except (OSError, ValueError):
+        return ""
 
 
 def _default_base_url() -> str:
@@ -27,15 +51,7 @@ def _default_base_url() -> str:
     if explicit:
         return explicit
     if not os.getenv("OPENAI_API_KEY", "").strip():
-        import socket
-
-        host = os.getenv("OLLAMA_HOST", "127.0.0.1:11434")
-        hostname, _, port = host.partition(":")
-        try:
-            with socket.create_connection((hostname, int(port or "11434")), timeout=0.3):
-                return f"http://{host}/v1"
-        except OSError:
-            return ""
+        return _ollama_base_url(probe=True)
     return ""
 
 
@@ -45,6 +61,21 @@ class Settings:
         default_factory=lambda: os.getenv("OPENAI_API_KEY", "").strip() or "ollama"
     )
     openai_base_url: str = field(default_factory=_default_base_url)
+    groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", "").strip())
+    groq_base_url: str = field(
+        default_factory=lambda: os.getenv("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL).strip()
+        or DEFAULT_GROQ_BASE_URL
+    )
+    groq_model: str = field(
+        default_factory=lambda: os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL).strip()
+        or DEFAULT_GROQ_MODEL
+    )
+    ollama_host: str = field(default_factory=_ollama_host)
+    ollama_base_url: str = field(default_factory=lambda: _ollama_base_url(probe=False))
+    ollama_model: str = field(
+        default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
+        or "qwen2.5:7b"
+    )
     llm_model: str = field(
         default_factory=lambda: os.getenv("LLM_MODEL", "").strip()
         or (os.getenv("OLLAMA_MODEL", "qwen2.5:7b") if not os.getenv("OPENAI_API_KEY") else "gpt-4o-mini")
@@ -75,9 +106,17 @@ class Settings:
 
     @property
     def llm_provider(self) -> str:
-        if "11434" in self.openai_base_url or "ollama" in self.openai_api_key.lower():
+        if self.groq_api_key:
+            return "groq"
+        if self.openai_base_url and "11434" in self.openai_base_url:
             return "ollama"
-        return "openai"
+        if self.openai_api_key.lower() == "ollama":
+            return "ollama"
+        if self.openai_api_key:
+            return "openai"
+        if self.openai_base_url:
+            return "openai-compatible"
+        return "none"
 
 
 @lru_cache
