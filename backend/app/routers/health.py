@@ -21,6 +21,8 @@ async def health(request: Request) -> HealthResponse:
         version=__version__,
         model=llm.model,
         provider=llm.provider,
+        aux_provider=llm.aux_provider,
+        aux_model=llm.aux_model,
         fallback_provider=llm.fallback_provider,
         fallback_model=llm.fallback_model,
         llm_configured=llm.configured,

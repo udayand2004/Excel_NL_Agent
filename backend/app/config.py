@@ -16,12 +16,21 @@ else:
     load_dotenv()
 
 DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DEFAULT_GROQ_MODEL = "qwen/qwen3.8-27b"
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_AUX_MODEL = ""
 
 
 def _csv_env(name: str, default: str) -> List[str]:
     raw = os.getenv(name, default)
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 
 def _ollama_host() -> str:
@@ -70,11 +79,48 @@ class Settings:
         default_factory=lambda: os.getenv("GROQ_MODEL", DEFAULT_GROQ_MODEL).strip()
         or DEFAULT_GROQ_MODEL
     )
+    groq_aux_model: str = field(
+        default_factory=lambda: os.getenv("GROQ_AUX_MODEL", DEFAULT_GROQ_AUX_MODEL).strip()
+    )
+    groq_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("GROQ_TIMEOUT_SECONDS", "30"))
+    )
+    groq_input_tpm: int = field(default_factory=lambda: _int_env("GROQ_INPUT_TPM", 8000))
+    groq_aux_input_tpm: int = field(
+        default_factory=lambda: _int_env("GROQ_AUX_INPUT_TPM", 8000)
+    )
+    groq_max_input_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_MAX_INPUT_TOKENS", 6000)
+    )
+    groq_code_prompt_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_CODE_PROMPT_TOKENS", 3200)
+    )
+    groq_explain_prompt_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_EXPLAIN_PROMPT_TOKENS", 1500)
+    )
+    groq_chart_prompt_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_CHART_PROMPT_TOKENS", 600)
+    )
+    groq_clarify_prompt_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_CLARIFY_PROMPT_TOKENS", 1300)
+    )
+    groq_error_prompt_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_ERROR_PROMPT_TOKENS", 900)
+    )
+    groq_history_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_HISTORY_TOKENS", 250)
+    )
+    groq_context_tokens: int = field(
+        default_factory=lambda: _int_env("GROQ_CONTEXT_TOKENS", 200)
+    )
     ollama_host: str = field(default_factory=_ollama_host)
     ollama_base_url: str = field(default_factory=lambda: _ollama_base_url(probe=False))
     ollama_model: str = field(
         default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen2.5:7b").strip()
         or "qwen2.5:7b"
+    )
+    ollama_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "25"))
     )
     llm_model: str = field(
         default_factory=lambda: os.getenv("LLM_MODEL", "").strip()

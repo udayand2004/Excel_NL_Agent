@@ -3,15 +3,113 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
 from .models import ColumnProfile, DataSummary
+from .prompt_budget import estimate_tokens, truncate_text, truncate_to_tokens
 from .serialize import to_jsonable
 
 MAX_SAMPLE_ROWS = 5
 MAX_PREVIEW_ROWS = 8
+MAX_DESCRIPTION_COLUMNS = 48
+MAX_NAME_ONLY_CHARS = 1800
+
+_STOP_TERMS = {
+    "about",
+    "across",
+    "after",
+    "also",
+    "an",
+    "analysis",
+    "analyze",
+    "and",
+    "are",
+    "as",
+    "at",
+    "average",
+    "be",
+    "before",
+    "between",
+    "bottom",
+    "by",
+    "calculate",
+    "can",
+    "chart",
+    "column",
+    "columns",
+    "compare",
+    "count",
+    "data",
+    "did",
+    "do",
+    "does",
+    "each",
+    "find",
+    "for",
+    "from",
+    "get",
+    "give",
+    "group",
+    "has",
+    "have",
+    "highest",
+    "how",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "list",
+    "lowest",
+    "make",
+    "many",
+    "most",
+    "number",
+    "of",
+    "on",
+    "or",
+    "over",
+    "per",
+    "please",
+    "plot",
+    "should",
+    "show",
+    "sheet",
+    "sort",
+    "sum",
+    "than",
+    "that",
+    "the",
+    "their",
+    "then",
+    "there",
+    "these",
+    "this",
+    "to",
+    "top",
+    "total",
+    "trend",
+    "up",
+    "using",
+    "value",
+    "values",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
+}
+
+_DATE_TERMS = {"date", "day", "month", "quarter", "time", "week", "year"}
 
 
 def load_workbook(path: str, filename: str) -> Dict[str, pd.DataFrame]:
@@ -137,31 +235,161 @@ def suggest_questions(summary: DataSummary) -> List[str]:
     return questions[:6]
 
 
+def _terms(text: str) -> set[str]:
+    return {
+        term
+        for term in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if len(term) >= 2 and term not in _STOP_TERMS
+    }
+
+
+def _column_score(profile: ColumnProfile, question: str, terms: set[str]) -> int:
+    name = profile.name.lower()
+    name_terms = _terms(name)
+    score = 0
+    if len(name) >= 2 and name in question:
+        score += 8
+    score += 5 * len(terms & name_terms)
+    score += sum(2 for term in terms if len(term) >= 3 and term in name)
+    if profile.kind == "datetime" and terms & _DATE_TERMS:
+        score += 3
+    if profile.kind == "numeric" and terms & {
+        "amount",
+        "cost",
+        "price",
+        "revenue",
+        "sales",
+    }:
+        score += 1
+    if profile.kind != "numeric":
+        for value in profile.sample_values[:5]:
+            text = str(value).strip().lower()
+            if len(text) >= 3 and text in question:
+                score += 6
+        for value in list((profile.top_values or {}).keys())[:5]:
+            text = str(value).strip().lower()
+            if len(text) >= 3 and text in question:
+                score += 4
+    return score
+
+
+def select_description_columns(
+    summary: DataSummary,
+    question: str = "",
+    max_columns: int = MAX_DESCRIPTION_COLUMNS,
+) -> List[ColumnProfile]:
+    """Keep question-relevant columns first, then fill with the leading columns."""
+    profiles = summary.column_profiles
+    if max_columns <= 0 or len(profiles) <= max_columns:
+        return list(profiles)
+
+    question_lower = (question or "").lower()
+    terms = _terms(question_lower)
+    ranked = sorted(
+        enumerate(profiles),
+        key=lambda item: (-_column_score(item[1], question_lower, terms), item[0]),
+    )
+    return [profile for _, profile in ranked[:max_columns]]
+
+
+def _profile_line(profile: ColumnProfile) -> str:
+    line = (
+        f"  - {profile.name!r} ({profile.kind}): "
+        f"{profile.unique_count} unique, {profile.null_count} null"
+    )
+    if profile.kind == "numeric" and profile.mean is not None:
+        line += f"; range [{profile.min:.4g}, {profile.max:.4g}], mean={profile.mean:.4g}"
+    elif profile.kind == "categorical" and profile.top_values:
+        top = ", ".join(f"{k}={v}" for k, v in list(profile.top_values.items())[:2])
+        line += f"; top: {top}"
+    elif profile.kind == "datetime" and profile.min_date:
+        line += f"; dates {profile.min_date} .. {profile.max_date}"
+    return line
+
+
 def generate_data_description(
-    summary: DataSummary, sheets: Dict[str, pd.DataFrame] | None = None
+    summary: DataSummary,
+    sheets: Optional[Dict[str, pd.DataFrame]] = None,
+    question: str = "",
+    max_columns: int = MAX_DESCRIPTION_COLUMNS,
+    max_tokens: Optional[int] = None,
+    include_samples: bool = True,
 ) -> str:
-    """Compact natural-language description of the active sheet for LLM prompts."""
+    """Compact, question-aware description of the active sheet for LLM prompts."""
+    profiles = summary.column_profiles
+    selected = select_description_columns(summary, question, max_columns)
+    available = max(200, max_tokens - 120) if max_tokens is not None else None
+    detail_budget = int(available * 0.58) if available is not None else None
+    name_budget = int(available * 0.18) if available is not None else None
+
+    detailed: List[ColumnProfile] = []
+    detail_lines: List[str] = []
+    for profile in selected:
+        line = _profile_line(profile)
+        if (
+            detail_budget is not None
+            and estimate_tokens("\n".join(detail_lines + [line])) > detail_budget
+        ):
+            break
+        detailed.append(profile)
+        detail_lines.append(line)
+
     lines = [
         f"File: {summary.filename}",
         f"Sheets available: {summary.sheets}",
         f"Active sheet: '{summary.active_sheet}' "
         f"({summary.rows} rows x {summary.columns} columns)",
-        "",
-        "Columns:",
     ]
-    for p in summary.column_profiles:
-        desc = f"  - {p.name} ({p.kind}, dtype={p.dtype}): {p.unique_count} unique, {p.null_count} null"
-        if p.kind == "numeric" and p.mean is not None:
-            desc += f"; range [{p.min:.4g}, {p.max:.4g}], mean={p.mean:.4g}"
-        elif p.kind == "categorical" and p.top_values:
-            top = ", ".join(f"{k}={v}" for k, v in list(p.top_values.items())[:3])
-            desc += f"; top: {top}"
-        elif p.kind == "datetime" and p.min_date:
-            desc += f"; dates {p.min_date} .. {p.max_date}"
-        lines.append(desc)
+    if summary.columns and summary.numeric_count / summary.columns >= 0.8:
+        lines.extend(
+            [
+                f"Layout: wide numeric table — {summary.numeric_count} of "
+                f"{summary.columns} columns are numeric measures; "
+                f"{summary.categorical_count} categorical dimension(s).",
+                "If the question asks for a breakdown by categories without naming "
+                "a category column, treat the numeric measure columns as categories "
+                "and aggregate their column totals.",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f"Columns with details ({len(detailed)} of {len(profiles)}):",
+            *detail_lines,
+        ]
+    )
+
+    detailed_names = {profile.name for profile in detailed}
+    omitted_names = [
+        profile.name for profile in profiles if profile.name not in detailed_names
+    ]
+    if omitted_names:
+        names = ", ".join(omitted_names)
+        if name_budget is not None:
+            names = truncate_to_tokens(names, name_budget)
+        else:
+            names = truncate_text(names, MAX_NAME_ONLY_CHARS)
+        lines.append(
+            f"Other columns (name only; {len(omitted_names)} total): {names}"
+        )
 
     frame = sheets.get(summary.active_sheet) if sheets else None
-    if frame is not None and not frame.empty:
-        preview = to_jsonable(frame.head(5).to_dict(orient="records"))
-        lines.extend(["", "Sample rows:", json.dumps(preview, indent=2, default=str)])
+    if include_samples and frame is not None and not frame.empty:
+        sample_columns = [
+            profile.name for profile in detailed if profile.name in frame.columns
+        ]
+        if sample_columns:
+            sample = to_jsonable(
+                frame.loc[:, sample_columns].head(5).to_dict(orient="records")
+            )
+            sample_text = json.dumps(sample, separators=(",", ":"), default=str)
+            if max_tokens is not None:
+                sample_budget = max_tokens - estimate_tokens("\n".join(lines)) - 12
+            else:
+                sample_budget = 500
+            if sample_budget >= 40:
+                lines.extend(
+                    ["", "Sample rows:", truncate_to_tokens(sample_text, sample_budget)]
+                )
+
     return "\n".join(lines)

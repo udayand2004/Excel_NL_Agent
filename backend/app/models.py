@@ -111,6 +111,8 @@ class HealthResponse(BaseModel):
     version: str
     model: str
     provider: str
+    aux_provider: Optional[str] = None
+    aux_model: Optional[str] = None
     fallback_provider: Optional[str] = None
     fallback_model: Optional[str] = None
     llm_configured: bool

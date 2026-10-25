@@ -1,7 +1,7 @@
 # AWS backend deployment
 
 This deploys the FastAPI backend to a single EC2 instance in the project's
-selected Region (`us-west-2`). Groq (`qwen/qwen3.8-27b`) is the primary LLM;
+selected Region (`us-west-2`). Groq (`openai/gpt-oss-120b`) is the primary LLM;
 Ollama with `qwen2.5:3b` is installed as the automatic fallback. Caddy provides
 HTTPS.
 

@@ -1,6 +1,6 @@
 # Excel AI Agent
 
-Full-stack AI agent that analyzes Excel/CSV files and answers natural-language questions with auto-generated charts. **Groq (`qwen/qwen3.8-27b`) is the primary LLM; local Ollama is the automatic fallback.**
+Full-stack AI agent that analyzes Excel/CSV files and answers natural-language questions with auto-generated charts. **Groq (`openai/gpt-oss-120b`) is the primary LLM; local Ollama is the automatic fallback.**
 
 ## Quick Start
 
@@ -33,13 +33,19 @@ request against local Ollama.
 
 | Backend | Setup |
 |---------|-------|
-| **Groq (primary)** | Set `GROQ_API_KEY` in `backend/.env`. Defaults: `GROQ_MODEL=qwen/qwen3.8-27b`, `GROQ_BASE_URL=https://api.groq.com/openai/v1`. |
-| **Ollama (fallback)** | Run `ollama serve`; auto-detected at `127.0.0.1:11434`. Set `OLLAMA_MODEL` (default `qwen2.5:7b`). |
+| **Groq (primary)** | Set `GROQ_API_KEY` in `backend/.env`. Defaults: `GROQ_MODEL=openai/gpt-oss-120b`, `GROQ_BASE_URL=https://api.groq.com/openai/v1`. |
+| **Ollama (fallback)** | Run `ollama serve`; auto-detected at `127.0.0.1:11434`. Set `OLLAMA_MODEL` (default `qwen2.5:7b`) and `OLLAMA_TIMEOUT_SECONDS` (default `25`). |
 | **OpenAI (optional)** | Set `OPENAI_API_KEY` and optionally `LLM_MODEL=gpt-4o-mini`. |
 | **Any compatible proxy** | Set `OPENAI_BASE_URL=http://host:port/v1`, `OPENAI_API_KEY=anything`, `LLM_MODEL=your-model`. |
 
 `GET /health` reports the active provider/model and the configured fallback.
 See `backend/.env.example` for all options.
+
+For Groq's 8,000 input-TPM free tier, prompts are compacted automatically:
+column selection is question-aware, sample rows are capped, history is summarized,
+and each workflow stage has its own token budget. The per-minute limiter waits
+briefly, then returns a retry message instead of sending a request that would
+exceed the limit. Ollama is used only for backend failures, not rate limits.
 
 ## API
 
@@ -67,8 +73,9 @@ Upload → FastAPI → Pandas profile → LLM (code + chart plan)
 ## Deployment
 
 - **Backend**: AWS EC2 (`t3.medium`, Ubuntu 24.04) running FastAPI with Groq
-  (`qwen/qwen3.8-27b`) as primary and Ollama (`qwen2.5:3b`) as fallback, with
-  Caddy providing HTTPS. See [`deploy/aws/README.md`](deploy/aws/README.md).
+  (`openai/gpt-oss-120b`) as primary and Ollama (`qwen2.5:3b` by default) as
+  fallback, with Caddy providing HTTPS. See
+  [`deploy/aws/README.md`](deploy/aws/README.md).
 - **Frontend**: Vercel static deployment. `npm run build` copies `frontend/`
   into `dist/`; set `frontend/config.js` to the AWS backend URL before deploying.
 - **Code mirror**: the repository is pushed to GitHub and, when available, to

@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 
 from ..charts import render_chart
-from ..llm import LLMError, strip_fences
+from ..llm import LLMError, LLMRateLimitError, strip_fences
 from ..models import ChatRequest, ChatResponse
 from ..profiling import build_summary
 from ..sandbox import execute_safely
@@ -149,6 +149,11 @@ async def chat(request: Request, payload: ChatRequest) -> ChatResponse:
             execution_ms=int((time.perf_counter() - started) * 1000),
         )
 
+    except LLMRateLimitError as exc:
+        logger.warning("LLM rate limit in /chat: %s", exc)
+        answer = str(exc)
+        session.history.append({"role": "assistant", "content": answer})
+        return ChatResponse(session_id=session.session_id, answer=answer, generated_code=code)
     except LLMError as exc:
         logger.exception("LLM failure in /chat")
         answer = f"I couldn't reach the language model: {exc}"
